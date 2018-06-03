@@ -1,0 +1,151 @@
+* Toponix
+
+Toponix will be a bunch of Nix functions that can transform a simple network topology description into useful answers such as "What are my options to get from host A to host B". This will also work with declaring openvpn servers and remote port forwarding for ssh.
+
+I am intending to use this for things like (which might come to this repo eventually):
+- Generating a script that sets up an ssh connection to a host, trying the best possible path but falling back to others.
+- Automatically setting up a working openvpn configuration for my machines, each of them automatically getting a static ip address
+- Automatically Setting up reverse port forwarding for the machines that don't have a public ip address
+- Generating an ssh client config that declares hosts for all other machines
+
+** Is it done?
+
+Nope! I just got it to a somewhat demonstratable point. The basic functions are implemented but it's not very nice to use right now. Literally everything is just an attribute defined in the ~default.nix~ file. I'll continue working on it because I really want to have it work well eventually.
+
+** How it currently works
+
+*** Topology description
+
+A network topology can be declared like this:
+
+#+BEGIN_SRC nix
+  {
+    home = {
+      pc = "192.168.1.25";
+      laptop = "192.168.1.19";
+    };
+    server = "76.174.19.220";
+    public = {
+      laptop = null;
+    };
+  }
+#+END_SRC
+
+Attributes that declare a string or null value directly at the top level (such as ~server~) mean that it has such a public ip. Nested attributes (such as ~home~ and ~public~) declare a subnet, everything within being private ips. Fixed strings as values mean that the ip is static, null values mean the ip is dynamic. Nodes can be declared a number of times (such as ~laptop~), which means that it's possible for this node to be at multiple locations.
+
+The textual description of the above declared topology is: There is a server with a public ip 76.174.19.220. In the home network there's a pc with a statically assigned ip 192.168.1.25, along with a laptop with static ip 192.168.1.19. The laptop can however also be in a public unknown subnet, where it has a private dynamic ip.
+
+*** Direct connections
+
+The ~direct~ attribute shows the direct connections from every to every node. With the above topology, it will result in
+
+#+BEGIN_SRC nix
+  {
+    laptop = {
+      laptop = [ "127.0.0.1" ];
+      pc = [ "192.168.1.25" ];
+      server = [ "76.174.19.220" ];
+    };
+    pc = {
+      laptop = [ "192.168.1.19" ];
+      pc = [ "127.0.0.1" ];
+      server = [ "76.174.19.220" ];
+    };
+    server = {
+      laptop = [ ];
+      pc = [ ];
+      server = [ "127.0.0.1" ];
+    };
+  }
+#+END_SRC
+
+(not yet, the implementation doesn't currently set the localhost values)
+
+*** Openvpn
+
+Openvpn requires some settings to work, declare them like this
+
+#+BEGIN_SRC nix
+  hosts: {
+    addresses = n: "10.74.10.${toString n}";
+    server = hosts.server;
+    clients = with hosts; [
+      pc
+      laptop
+    ];
+  }
+#+END_SRC
+
+~addresses~ declare what static ip it should use for a certain host number. ~server~ declares which host should run the openvpn server. ~clients~ declares the order in which clients should be assigned an ip. When you add a new machine, you'll want to add it at the bottom, as to keep the static ip assignment. Note that in this case the server will always get ip "10.74.10.1", and the clients "10.74.10.2" and so on.
+
+The result will look like this:
+
+#+BEGIN_SRC nix
+  {
+    laptop = {
+      laptop = [ "10.176.75.3" ];
+      pc = [ "10.176.75.2" ];
+      server = [ "10.176.75.1" ];
+    };
+    pc = {
+      laptop = [ "10.176.75.3" ];
+      pc = [ "10.176.75.2" ];
+      server = [ "10.176.75.1" ];
+    };
+    server = {
+      laptop = [ "10.176.75.3" ];
+      pc = [ "10.176.75.2" ];
+      server = [ "10.176.75.1" ];
+    };
+  }
+
+#+END_SRC
+
+*** Reverse port forwarding
+
+As with openvpn, reverse port forwarding requires some settings:
+
+#+BEGIN_SRC nix
+  hosts: {
+    ipPorts = n: toString (6726 + n);
+    server = hosts.server;
+    clients = with hosts; [
+      pc
+      laptop
+    ];
+  }
+#+END_SRC
+
+Here ~ipPorts~ declares which port to use on the server for the client with a certain number. ~server~ is the server to be used for reverse port forwarding. ~clients~ are the clients that should be set up.
+
+The result looks like this:
+
+#+BEGIN_SRC nix
+  {
+    laptop = {
+      laptop = [ "76.174.19.220:6728" ];
+      pc = [ "76.174.19.220:6727" ];
+      server = [ ];
+    };
+    pc = {
+      laptop = [ "76.174.19.220:6728" ];
+      pc = [ "76.174.19.220:6727" ];
+      server = [ ];
+    };
+    server = {
+      laptop = [ "localhost:6728" ];
+      pc = [ "localhost:6727" ];
+      server = [ ];
+    };
+  }
+#+END_SRC
+
+** Ideas/Todo
+
+- Improve usability
+- Implement the things mentioned at the top
+- Ipv6 support
+- The parts should be easy to combine
+- Add some error messages
+- Have the remote port forwarding have an option to automatically use it for all clients that aren't accessible from a host if it wouldn't be used for it
+- Have results other than from/to mappings: Also return nixos config to be used for the hosts so everything works, ssh config as well possibly

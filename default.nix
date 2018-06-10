@@ -1,5 +1,5 @@
 { lib ? import <nixpkgs/lib>
-, configuration ? ./exampleConfig.nix
+, configuration
 }:
 
 let

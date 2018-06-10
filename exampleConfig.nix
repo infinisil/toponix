@@ -5,8 +5,7 @@
       pc = "192.168.1.25";
       laptop = "192.168.1.19";
     };
-    otherserver = "164.165.203.40";
-    server = "207.154.198.134";
+    server = "76.174.19.220";
     public = {
       laptop = null;
     };
@@ -29,7 +28,6 @@
     clients = with config.hosts; [
       pc
       laptop
-      otherserver
     ];
   };
 

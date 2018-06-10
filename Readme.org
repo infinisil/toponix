@@ -1,6 +1,6 @@
 * Toponix
 
-Toponix will be a bunch of Nix functions that can transform a simple network topology description into useful answers such as "What are my options to get from host A to host B". This will also work with declaring openvpn servers and remote port forwarding for ssh.
+Toponix is a Nix module that can transform a simple network topology description into useful answers such as "What are my options to get from host A to host B". This will also work with declaring openvpn servers and remote port forwarding for ssh.
 
 I am intending to use this for things like (which might come to this repo eventually):
 - Generating a script that sets up an ssh connection to a host, trying the best possible path but falling back to others.
@@ -10,9 +10,50 @@ I am intending to use this for things like (which might come to this repo eventu
 
 ** Is it done?
 
-Nope! I just got it to a somewhat demonstratable point. The basic functions are implemented but it's not very nice to use right now. Literally everything is just an attribute defined in the ~default.nix~ file. I'll continue working on it because I really want to have it work well eventually.
+It is usable now, but not very useful, since the only thing it does right now is calculate the results, without actually being able to do anything useful with them. That part will come later. You can however process this output yourself already.
 
-** How it currently works
+** How-To
+
+A config file for toponix looks like this:
+
+#+BEGIN_SRC nix
+  { config, ... }: {
+
+    topology = {
+      home = {
+        pc = "192.168.1.25";
+        laptop = "192.168.1.19";
+      };
+      server = "76.174.19.220";
+      public = {
+        laptop = null;
+      };
+    };
+
+    rssh = {
+      enable = true;
+      ipPorts = n: toString (6726 + n);
+      server = config.hosts.server;
+      clients = with config.hosts; [
+        pc
+        laptop
+      ];
+    };
+
+    openvpn = {
+      enable = true;
+      addresses = n: "10.176.75.${toString n}";
+      server = config.hosts.server;
+      clients = with config.hosts; [
+        pc
+        laptop
+        otherserver
+      ];
+    };
+
+  }
+
+#+END_SRC
 
 *** Topology description
 
@@ -20,13 +61,16 @@ A network topology can be declared like this:
 
 #+BEGIN_SRC nix
   {
-    home = {
-      pc = "192.168.1.25";
-      laptop = "192.168.1.19";
-    };
-    server = "76.174.19.220";
-    public = {
-      laptop = null;
+
+    topology = {
+      home = {
+        pc = "192.168.1.25";
+        laptop = "192.168.1.19";
+      };
+      server = "76.174.19.220";
+      public = {
+        laptop = null;
+      };
     };
   }
 #+END_SRC
@@ -35,9 +79,27 @@ Attributes that declare a string or null value directly at the top level (such a
 
 The textual description of the above declared topology is: There is a server with a public ip 76.174.19.220. In the home network there's a pc with a statically assigned ip 192.168.1.25, along with a laptop with static ip 192.168.1.19. The laptop can however also be in a public unknown subnet, where it has a private dynamic ip.
 
-*** Direct connections
+*** Options
 
-The ~direct~ attribute shows the direct connections from every to every node. With the above topology, it will result in
+Everything of importance is declared as an option, either ones for you to configure or ones that calculate a result (read only options). To evaluate options, write a file like ~test.nix~:
+
+#+BEGIN_SRC nix
+  import /path/to/toponix {
+    configuration = /path/to/your/config.nix;
+  }
+#+END_SRC
+
+Then you can evaluate options with ~nix-instantiate~ and pipe the json output to ~jq~ to see it nicely structured. For example, to evaluate the ~topology~ options, use this:
+
+#+BEGIN_SRC bash
+  nix-instantiate test.nix --strict --json -A config.topology | jq
+#+END_SRC
+
+The following subsections will only mention which options you'll have to evaluate to get the result;
+
+**** Direct connections
+
+The ~direct~ option shows the direct connections from every to every node. With the above topology, it will result in
 
 #+BEGIN_SRC nix
   {
@@ -59,66 +121,70 @@ The ~direct~ attribute shows the direct connections from every to every node. Wi
   }
 #+END_SRC
 
-(not yet, the implementation doesn't currently set the localhost values)
+**** Openvpn
 
-*** Openvpn
-
-Openvpn requires some settings to work, declare them like this
+Openvpn requires some settings to work, as seen in the example config above:
 
 #+BEGIN_SRC nix
-  hosts: {
-    addresses = n: "10.74.10.${toString n}";
-    server = hosts.server;
-    clients = with hosts; [
-      pc
-      laptop
-    ];
+  { config, ... }: {
+    openvpn = {
+      enable = true;
+      addresses = n: "10.74.10.${toString n}";
+      server = config.hosts.server;
+      clients = with config.hosts; [
+        pc
+        laptop
+      ];
+    };
   }
 #+END_SRC
 
 ~addresses~ declare what static ip it should use for a certain host number. ~server~ declares which host should run the openvpn server. ~clients~ declares the order in which clients should be assigned an ip. When you add a new machine, you'll want to add it at the bottom, as to keep the static ip assignment. Note that in this case the server will always get ip "10.74.10.1", and the clients "10.74.10.2" and so on.
 
-The result will look like this:
+The result is in the option ~openvpn.paths~, which looks like this:
 
 #+BEGIN_SRC nix
   {
     laptop = {
-      laptop = [ "10.176.75.3" ];
-      pc = [ "10.176.75.2" ];
-      server = [ "10.176.75.1" ];
+      laptop = [ "10.74.10.3" ];
+      pc = [ "10.74.10.2" ];
+      server = [ "10.74.10.1" ];
     };
     pc = {
-      laptop = [ "10.176.75.3" ];
-      pc = [ "10.176.75.2" ];
-      server = [ "10.176.75.1" ];
+      laptop = [ "10.74.10.3" ];
+      pc = [ "10.74.10.2" ];
+      server = [ "10.74.10.1" ];
     };
     server = {
-      laptop = [ "10.176.75.3" ];
-      pc = [ "10.176.75.2" ];
-      server = [ "10.176.75.1" ];
+      laptop = [ "10.74.10.3" ];
+      pc = [ "10.74.10.2" ];
+      server = [ "10.74.10.1" ];
     };
   }
 
 #+END_SRC
 
-*** Reverse port forwarding
+**** Reverse port forwarding
 
 As with openvpn, reverse port forwarding requires some settings:
 
 #+BEGIN_SRC nix
-  hosts: {
-    ipPorts = n: toString (6726 + n);
-    server = hosts.server;
-    clients = with hosts; [
-      pc
-      laptop
-    ];
+  { config, ... }: {
+    rssh = {
+      enable = true;
+      ipPorts = n: toString (6726 + n);
+      server = config.hosts.server;
+      clients = with config.hosts; [
+        pc
+        laptop
+      ];
+    };
   }
 #+END_SRC
 
 Here ~ipPorts~ declares which port to use on the server for the client with a certain number. ~server~ is the server to be used for reverse port forwarding. ~clients~ are the clients that should be set up.
 
-The result looks like this:
+The result is in the option ~rssh.paths~, which looks like this:
 
 #+BEGIN_SRC nix
   {
@@ -140,12 +206,36 @@ The result looks like this:
   }
 #+END_SRC
 
+**** Combined
+
+Both openvpn and rssh have an ~enable~ options. What it does is add the result of it to an option combining all paths from all enabled modules (direct connections are always enabled though). This is the ~combinedPaths~ options, which looks like this:
+
+#+BEGIN_SRC nix
+  { 
+    laptop = { 
+      laptop = [ "127.0.0.1" ]; 
+      pc = [ "192.168.1.25" "10.176.75.2" "76.174.19.220:6727" ]; 
+      server = [ "76.174.19.220" "10.176.75.1" ];
+    }; 
+    pc = { 
+      laptop = [ "192.168.1.19" "10.176.75.3" "76.174.19.220:6728" ]; 
+      pc = [ "127.0.0.1" ]; 
+      server = [ "76.174.19.220" "10.176.75.1" ];
+    }; 
+    server = { 
+      laptop = [ "10.176.75.3" "localhost:6728" ]; 
+      pc = [ "10.176.75.2" "localhost:6727" ]; 
+      server = [ "127.0.0.1" ];
+    };
+  }
+#+END_SRC
+
 ** Ideas/Todo
 
-- Improve usability
-- Implement the things mentioned at the top
-- Ipv6 support
-- The parts should be easy to combine
-- Add some error messages
-- Have the remote port forwarding have an option to automatically use it for all clients that aren't accessible from a host if it wouldn't be used for it
-- Have results other than from/to mappings: Also return nixos config to be used for the hosts so everything works, ssh config as well possibly
+- [X] Improve usability
+- [ ] Implement the things mentioned at the top
+- [ ] Ipv6 support
+- [ ] The parts should be easy to combine
+- [ ] Add some error messages
+- [ ] Have the remote port forwarding have an option to automatically use it for all clients that aren't accessible from a host if it wouldn't be used for it
+- [ ] Have results other than from/to mappings: Also return nixos config to be used for the hosts so everything works, ssh config as well possibly

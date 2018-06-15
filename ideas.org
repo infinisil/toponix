@@ -1,0 +1,32 @@
+a module file should define everything and be usable in itself. It should contain options ~topology~, ~ordering~, ~defaults~, ~hosts~. ~defaults~ will be applied as a default to all hosts. ~hosts~ is used to specify host-specific settings, as well as to retrieve the answers. E.g. ~hosts.foo.paths.bar~ will contains paths from host "foo" to host "bar", ~hosts.foo.nixos~ will contain the NixOS config needed for "foo" to work according to the options.
+
+To create a NixOS module out of this, a submodule that imports the above module, adding a single option to it: ~host~. This option will select which host to get the NixOS configuration from
+
+Nixops configuration should be usable like this:
+#+BEGIN_SRC nix
+  import ./toponix/nixops.nix {
+    topology = {
+      # ...
+    };
+
+    # ...
+  }
+
+#+END_SRC
+
+~nixops.nix~ should then look like this:
+
+#+BEGIN_SRC nix
+  config: {
+    defaults = { lib, name, ... }: {
+      imports = [
+        ./toponix/nixos.nix
+      ];
+
+      toponix = lib.mkMerge [
+        config
+        { host = name; }
+      ];
+    };
+  }
+#+END_SRC

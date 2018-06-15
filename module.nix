@@ -4,6 +4,30 @@ with lib;
 
 let
 
+  hostType = types.submodule ({ name, ... }: {
+
+    imports = [
+      ./rssh.nix
+      ./openvpn.nix
+    ];
+
+    options = {
+      name = mkOption {
+        type = types.str;
+        description = "Host name, will coincide with the ones in topology";
+      };
+    };
+
+    config = {
+
+      # Might get infinite recursion
+      _module.args.toponix = config;
+
+      name = mkDefault name;
+      hosts = config.hosts;
+    };
+  });
+
   topologyType = with types;
     let ip = nullOr str;
         subnet = attrsOf ip;
@@ -47,7 +71,6 @@ let
     ) fromValue
   );
 
-
 in {
 
   imports = [
@@ -59,6 +82,11 @@ in {
     topology = mkOption {
       type = topologyType;
       description = "Topology";
+    };
+
+    ordering = mkOption {
+      type = types.listOf hostType;
+      description = "ordering of the hosts";
     };
 
     endpoints = mkOption {

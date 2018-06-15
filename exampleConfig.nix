@@ -11,6 +11,33 @@
     };
   };
 
+  ordering = with config.hosts; [
+    server
+    laptop
+    pc
+  ];
+
+  defaults = { config, ... }: {
+    openvpn = {
+      ip = "10.176.75.${config.n}";
+      server = config.hosts.server;
+      client = true;
+    };
+  };
+
+  hosts = {
+    laptop = {
+      # name = mkDefault "laptop"
+      rssh.enable = true;
+    };
+    server = {
+
+    };
+    pc = {
+      openvpn.enable = true;
+    };
+  };
+
   rssh = {
     enable = true;
     ipPorts = n: toString (6726 + n);
